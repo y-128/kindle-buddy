@@ -1,0 +1,42 @@
+{
+  "_comment": "Merge the 'hooks' block into ~/.claude/settings.json (or any project .claude/settings.json). Each hook POSTs the payload to the bridge daemon; the daemon forwards it to the Kindle over WiFi TCP or USB serial. '|| echo {}' makes the hook a no-op when the daemon is not running.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {"type": "command", "command": "curl -sS --max-time 3 -X POST --data-binary @- http://127.0.0.1:9876/hook 2>/dev/null || echo '{}'"}
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {"type": "command", "command": "curl -sS --max-time 3 -X POST --data-binary @- http://127.0.0.1:9876/hook 2>/dev/null || echo '{}'"}
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {"type": "command", "command": "curl -sS --max-time 3 -X POST --data-binary @- http://127.0.0.1:9876/hook 2>/dev/null || echo '{}'"}
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {"type": "command", "command": "curl -sS --max-time 40 -X POST --data-binary @- http://127.0.0.1:9876/hook 2>/dev/null || echo '{}'"}
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {"type": "command", "command": "curl -sS --max-time 3 -X POST --data-binary @- http://127.0.0.1:9876/hook 2>/dev/null || echo '{}'"}
+        ]
+      }
+    ]
+  }
+}

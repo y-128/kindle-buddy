@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension>
+    <information>
+        <name>Claude Buddy</name>
+        <version>1.0.0</version>
+        <author>claude-buddy</author>
+        <description>Claude Code companion on Kindle e-ink. Mirrors sessions and routes permission prompts to the touchscreen.</description>
+    </information>
+    <menus>
+        <menu type="json" dynamic="false">menu.json</menu>
+    </menus>
+</extension>

@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+daemon.log
+launchd.*.log
+
+# Runtime / generated
+.env
+~/.claude-buddy/
+
+# SSH keys (should never be committed)
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+authorized_keys
+
+https-github-com-op7418-m5-paper-buddy-b-modular-bear.md

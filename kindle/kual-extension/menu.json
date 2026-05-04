@@ -1,0 +1,29 @@
+{
+  "items": [
+    {
+      "name": "Start Buddy",
+      "action": "sh /mnt/us/extensions/ClaudeBuddy/start.sh",
+      "priority": 10
+    },
+    {
+      "name": "Stop Buddy",
+      "action": "sh /mnt/us/extensions/ClaudeBuddy/stop.sh",
+      "priority": 20
+    },
+    {
+      "name": "Status",
+      "action": "sh /mnt/us/extensions/ClaudeBuddy/buddyctl.sh status | fbink -q -pmh",
+      "priority": 25
+    },
+    {
+      "name": "Show IP",
+      "action": "sh -c 'ip addr show wlan0 2>/dev/null | grep \"inet \" | awk \"{print \\$2}\" > /tmp/buddy_ip.txt; fbink -q -y -4 \"$(cat /tmp/buddy_ip.txt)\"'",
+      "priority": 30
+    },
+    {
+      "name": "View Log (last 20 lines)",
+      "action": "sh -c 'tail -20 /mnt/us/buddy/buddy.log > /tmp/buddy_log_tail.txt; fbink -q -pmh \"$(cat /tmp/buddy_log_tail.txt)\"'",
+      "priority": 40
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "kindle-buddy",
+  "version": "1.0.0",
+  "description": "Claude Code companion on Kindle e-ink (K7/K8). Mirrors sessions, routes permission prompts and AskUserQuestion to the touchscreen via WiFi TCP or USB serial.",
+  "author": "claude-buddy",
+  "homepage": "https://github.com/op7418/m5-paper-buddy",
+  "commands": "./commands",
+  "hooks": "./settings/hooks.json",
+  "scripts": "./scripts"
+}
