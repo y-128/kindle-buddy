@@ -64,10 +64,11 @@ NUS_TX_UUID      = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"   # device → central
 STATE_LOCK = threading.Lock()
 
 SESSIONS_RUNNING = set()
-SESSIONS_TOTAL   = set()
+SESSIONS_TOTAL   = []    # ordered; preserves session-start order
 SESSIONS_WAITING = set()
 SESSION_META     = {}          # sid -> {cwd, project, branch, dirty, checked_at}
-TRANSCRIPT       = deque(maxlen=8)
+TRANSCRIPT         = deque(maxlen=8)
+SESSION_TRANSCRIPT = {}   # sid -> deque(maxlen=12)
 TOKENS_TOTAL     = 0
 TOKENS_TODAY     = 0
 APPROVED_COUNT   = 0
@@ -93,9 +94,14 @@ def now_hm():
     return datetime.now().strftime("%H:%M")
 
 
-def add_transcript(line: str):
+def add_transcript(line: str, sid: str = ""):
+    ts = f"{now_hm()} {line[:80]}"
     with STATE_LOCK:
-        TRANSCRIPT.appendleft(f"{now_hm()} {line[:80]}")
+        TRANSCRIPT.appendleft(ts)
+        if sid:
+            if sid not in SESSION_TRANSCRIPT:
+                SESSION_TRANSCRIPT[sid] = deque(maxlen=12)
+            SESSION_TRANSCRIPT[sid].appendleft(ts)
 
 
 # -----------------------------------------------------------------------------
@@ -366,6 +372,8 @@ def on_rx_byte(b: int):
                 # pending-approval FIFO — approvals keep popping in order.
                 global FOCUSED_SID
                 FOCUSED_SID = obj.get("sid") or None
+                if FOCUSED_SID and FOCUSED_SID not in SESSIONS_TOTAL:
+                    SESSIONS_TOTAL.append(FOCUSED_SID)
                 BUMP_EVENT.set()
     else:
         if len(_rx_buf) < 4096:   # sanity cap; devices don't send this much anyway
@@ -515,7 +523,7 @@ def build_heartbeat() -> dict:
             "running":      len(SESSIONS_RUNNING),
             "waiting":      len(SESSIONS_WAITING),
             "msg":          msg[:23],
-            "entries":      list(TRANSCRIPT),
+            "entries":      list(TRANSCRIPT),  # overwritten below once sid is resolved
             "tokens":       0,
             "tokens_today": 0,
             "approved":     APPROVED_COUNT,
@@ -570,7 +578,7 @@ def build_heartbeat() -> dict:
         # 2. Session that raised the current approval
         # 3. Most recently-active running session
         sid = None
-        if FOCUSED_SID and FOCUSED_SID in SESSION_META:
+        if FOCUSED_SID and (FOCUSED_SID in SESSION_META or FOCUSED_SID in SESSIONS_TOTAL):
             sid = FOCUSED_SID
         elif ACTIVE_PROMPT and ACTIVE_PROMPT.get("session_id"):
             sid = ACTIVE_PROMPT["session_id"]
@@ -602,6 +610,10 @@ def build_heartbeat() -> dict:
         a_msg = SESSION_ASSISTANT.get(sid) if sid else None
         if a_msg:   hb["assistant_msg"] = a_msg
         elif ASSISTANT_MSG: hb["assistant_msg"] = ASSISTANT_MSG
+
+        # Use the focused session's activity log; fall back to the global log.
+        if sid and sid in SESSION_TRANSCRIPT:
+            hb["entries"] = list(SESSION_TRANSCRIPT[sid])
     return hb
 
 
@@ -768,6 +780,26 @@ def extract_last_assistant(path: str) -> str:
     return ""
 
 
+def _delayed_transcript_update(sid: str, tp: str, delay: float = 0.8) -> None:
+    """Re-read the transcript after a short delay to catch the final assistant
+    message, which may not be flushed to disk when the Stop hook fires."""
+    time.sleep(delay)
+    latest = extract_last_assistant(tp)
+    if not latest:
+        return
+    changed = False
+    if SESSION_ASSISTANT.get(sid) != latest:
+        SESSION_ASSISTANT[sid] = latest
+        changed = True
+    global ASSISTANT_MSG
+    if latest != ASSISTANT_MSG:
+        ASSISTANT_MSG = latest
+        changed = True
+    if changed:
+        log(f"[stop] delayed reply update: {latest[:50]!r}")
+        BUMP_EVENT.set()
+
+
 # -----------------------------------------------------------------------------
 # HTTP handler — unchanged in terms of semantics.
 # -----------------------------------------------------------------------------
@@ -790,6 +822,15 @@ class HookHandler(BaseHTTPRequestHandler):
         cwd = payload.get("cwd", "")
         if sid and cwd:
             refresh_git(sid, cwd)
+
+        # Register any session that fires hooks, not just SessionStart.
+        # This catches sessions already running when the bridge restarts.
+        if sid:
+            with STATE_LOCK:
+                if sid not in SESSIONS_TOTAL:
+                    SESSIONS_TOTAL.append(sid)
+                if event in ("UserPromptSubmit", "PreToolUse", "PostToolUse"):
+                    SESSIONS_RUNNING.add(sid)
 
         global MODEL_NAME, ASSISTANT_MSG
         payload_model = model_from_payload(payload)
@@ -850,28 +891,38 @@ class HookHandler(BaseHTTPRequestHandler):
     def _session_start(self, p):
         sid = p.get("session_id", "")
         with STATE_LOCK:
-            SESSIONS_TOTAL.add(sid); SESSIONS_RUNNING.add(sid)
+            if sid not in SESSIONS_TOTAL: SESSIONS_TOTAL.append(sid)
+            SESSIONS_RUNNING.add(sid)
         proj = (SESSION_META.get(sid) or {}).get("project", "")
-        add_transcript(f"session: {proj}" if proj else "session started")
+        add_transcript(f"session: {proj}" if proj else "session started", sid)
         BUMP_EVENT.set()
         return {}
 
     def _session_stop(self, p):
         sid = p.get("session_id", "")
+        tp  = p.get("transcript_path", "")
         with STATE_LOCK:
             SESSIONS_RUNNING.discard(sid)
-        add_transcript("session done"); BUMP_EVENT.set()
+        add_transcript("session done", sid); BUMP_EVENT.set()
+        if sid and tp:
+            threading.Thread(
+                target=_delayed_transcript_update,
+                args=(sid, tp),
+                daemon=True,
+            ).start()
         return {}
 
     def _user_prompt(self, p):
+        sid    = p.get("session_id", "")
         prompt = (p.get("prompt") or "").strip().replace("\n", " ")
         if prompt:
-            add_transcript(f"> {prompt[:60]}"); BUMP_EVENT.set()
+            add_transcript(f"> {prompt[:60]}", sid); BUMP_EVENT.set()
         return {}
 
     def _posttool(self, p):
+        sid  = p.get("session_id", "")
         tool = p.get("tool_name", "?")
-        add_transcript(f"{tool} done"); BUMP_EVENT.set()
+        add_transcript(f"{tool} done", sid); BUMP_EVENT.set()
         return {}
 
     def _pretool(self, p):
@@ -886,7 +937,7 @@ class HookHandler(BaseHTTPRequestHandler):
         # every tool call just to show a card Claude Code would ignore.
         # Still emit a short transcript line so the Paper shows activity.
         if p.get("permission_mode") == "bypassPermissions":
-            add_transcript(f"{tool} (bypass)")
+            add_transcript(f"{tool} (bypass)", sid)
             BUMP_EVENT.set()
             return {"hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
@@ -952,7 +1003,7 @@ class HookHandler(BaseHTTPRequestHandler):
             try: idx = int(decision.split(":", 1)[1])
             except ValueError: idx = -1
             label = option_labels[idx] if 0 <= idx < len(option_labels) else ""
-            add_transcript(f"{tool} → {label[:30]}"); BUMP_EVENT.set()
+            add_transcript(f"{tool} → {label[:30]}", sid); BUMP_EVENT.set()
             return {"hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
@@ -966,7 +1017,7 @@ class HookHandler(BaseHTTPRequestHandler):
         if decision == "once":
             global APPROVED_COUNT
             APPROVED_COUNT += 1
-            add_transcript(f"{tool} allow"); BUMP_EVENT.set()
+            add_transcript(f"{tool} allow", sid); BUMP_EVENT.set()
             return {"hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "allow",
@@ -975,7 +1026,7 @@ class HookHandler(BaseHTTPRequestHandler):
         if decision == "deny":
             global DENIED_COUNT
             DENIED_COUNT += 1
-            add_transcript(f"{tool} deny"); BUMP_EVENT.set()
+            add_transcript(f"{tool} deny", sid); BUMP_EVENT.set()
             reason = ("The user cancelled this question on the M5Paper "
                       "buddy without answering. Ask them directly in the "
                       "terminal instead.") if kind == "question" else "Denied on M5Paper"
@@ -984,7 +1035,7 @@ class HookHandler(BaseHTTPRequestHandler):
                 "permissionDecision": "deny",
                 "permissionDecisionReason": reason,
             }}
-        add_transcript(f"{tool} timeout"); BUMP_EVENT.set()
+        add_transcript(f"{tool} timeout", sid); BUMP_EVENT.set()
         return {}
 
 

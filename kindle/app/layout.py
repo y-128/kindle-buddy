@@ -114,5 +114,9 @@ FONT_MONO_CANDIDATES = (
     _os.path.join(_FONTS, "DejaVuSansMono.ttf"),
 )
 
+FONT_EMOJI_CANDIDATES = (
+    _os.path.join(_FONTS, "OpenMoji-black-glyf.ttf"),
+)
+
 FONT_SANS = FONT_SANS_CANDIDATES[0]
 FONT_MONO = FONT_MONO_CANDIDATES[0]

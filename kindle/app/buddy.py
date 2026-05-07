@@ -228,6 +228,9 @@ def render_loop() -> None:
                 elapsed = time.monotonic() - _prompt_arrived.get(s.prompt_id, now)
                 log.debug("[render] approval prompt=%s tool=%s", s.prompt_id, s.prompt_tool)
                 RENDERER.draw_approval_card(s, elapsed_s=elapsed)
+                if DND_MODE:
+                    # Auto-approve in DND after short delay
+                    threading.Timer(0.6, lambda pid=s.prompt_id: _ack(pid, "once")).start()
             else:
                 render_summary = (
                     f"dashboard total={s.sessions_total} running={s.sessions_running} "
@@ -245,9 +248,6 @@ def render_loop() -> None:
                     DND_MODE,
                 )
                 RENDERER.draw_dashboard(s, celebrate=celebrate, dnd=DND_MODE)
-                if DND_MODE and s.prompt_id:
-                    # Auto-approve in DND after short delay
-                    threading.Timer(0.6, lambda: _ack(s.prompt_id, "once")).start()
         except Exception:
             log.exception("[render] draw raised")
 

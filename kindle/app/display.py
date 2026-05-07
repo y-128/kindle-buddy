@@ -88,6 +88,43 @@ def _mono(size: int) -> ImageFont.FreeTypeFont:
     return _font(layout.FONT_MONO_CANDIDATES, size)
 
 
+def _emoji(size: int) -> ImageFont.FreeTypeFont:
+    return _font(layout.FONT_EMOJI_CANDIDATES, size)
+
+
+def _is_emoji(ch: str) -> bool:
+    cp = ord(ch)
+    return (
+        0x1F000 <= cp <= 0x1FFFF or
+        0x2600 <= cp <= 0x27BF or
+        0x2B00 <= cp <= 0x2BFF
+    )
+
+
+def _text_segments(text: str) -> list[tuple[str, bool]]:
+    """Split text into (chunk, is_emoji) segments, skipping invisible emoji modifiers."""
+    _SKIP = {0x200D, 0xFE0E, 0xFE0F}
+    segments: list[tuple[str, bool]] = []
+    current = ""
+    current_emoji: bool | None = None
+    for ch in text:
+        if ord(ch) in _SKIP:
+            continue
+        em = _is_emoji(ch)
+        if current_emoji is None:
+            current_emoji = em
+        if em != current_emoji:
+            if current:
+                segments.append((current, current_emoji))
+            current = ch
+            current_emoji = em
+        else:
+            current += ch
+    if current:
+        segments.append((current, current_emoji if current_emoji is not None else False))
+    return segments
+
+
 # ── Renderer ──────────────────────────────────────────────────────────────────
 
 class Renderer:
@@ -116,13 +153,37 @@ class Renderer:
         for dy in range(layout.RULE_THICK):
             self._draw.line([(x0, y + dy), (x1, y + dy)], fill=layout.INK)
 
+    def _seg_width(self, seg: str, is_em: bool, font: ImageFont.FreeTypeFont) -> int:
+        f = _emoji(font.size) if is_em else font
+        bb = f.getbbox(seg)
+        return bb[2] - bb[0]
+
     def _text(self, text: str, x: int, y: int, font: ImageFont.FreeTypeFont,
               fill: int = layout.INK, anchor: str = "la") -> None:
-        self._draw.text((x, y), text, font=font, fill=fill, anchor=anchor)
+        segs = _text_segments(text)
+        if not segs or not any(is_em for _, is_em in segs):
+            self._draw.text((x, y), text, font=font, fill=fill, anchor=anchor)
+            return
+        total_w = sum(self._seg_width(s, e, font) for s, e in segs)
+        h_anchor = anchor[0] if anchor else "l"
+        if h_anchor == "r":
+            cx = x - total_w
+        elif h_anchor == "m":
+            cx = x - total_w // 2
+        else:
+            cx = x
+        v_anchor = anchor[1] if len(anchor) > 1 else "a"
+        for seg, is_em in segs:
+            f = _emoji(font.size) if is_em else font
+            self._draw.text((cx, y), seg, font=f, fill=fill, anchor="l" + v_anchor)
+            cx += self._seg_width(seg, is_em, font)
 
     def _text_width(self, text: str, font: ImageFont.FreeTypeFont) -> int:
-        bb = font.getbbox(text)
-        return bb[2] - bb[0]
+        segs = _text_segments(text)
+        if not segs or not any(is_em for _, is_em in segs):
+            bb = font.getbbox(text)
+            return bb[2] - bb[0]
+        return sum(self._seg_width(s, e, font) for s, e in segs)
 
     def _rect(self, x: int, y: int, w: int, h: int,
               fill: int | None = None, outline: int | None = None) -> None:
@@ -320,9 +381,10 @@ class Renderer:
         # Latest reply
         self._text("LATEST REPLY", P, Y + 318, label_font, fill=layout.INK_DIM)
         reply = s.assistant_msg or s.msg or "Waiting for Claude Code..."
-        reply_lines = self._wrap_lines(reply, body_font, layout.W - 2 * P)
+        reply_font = _sans(layout.TS_SM + 2)
+        reply_lines = self._wrap_lines(reply, reply_font, layout.W - 2 * P)
         for i, line in enumerate(reply_lines[:4]):
-            self._text(line, P, Y + 342 + i * 25, body_font)
+            self._text(line, P, Y + 342 + i * 22, reply_font)
         self._rule(Y + 426)
 
         # Activity
