@@ -46,6 +46,7 @@ DND_MODE     = False
 SETTINGS_MODE = False
 EXIT_REQUESTED = False
 FULL_REFRESH_REQUESTED = False
+SESSION_SCROLL = 0
 SETTINGS_NOTICE_UNTIL: float = 0.0
 CELEBRATE_UNTIL: float = 0.0
 
@@ -82,7 +83,7 @@ def _ack(prompt_id: str, decision: str) -> None:
 # ─── touch handler ────────────────────────────────────────────────────────────
 
 def on_tap(sx: int, sy: int) -> None:
-    global DND_MODE, SETTINGS_MODE, EXIT_REQUESTED, FULL_REFRESH_REQUESTED, SETTINGS_NOTICE_UNTIL, CELEBRATE_UNTIL
+    global DND_MODE, SETTINGS_MODE, EXIT_REQUESTED, FULL_REFRESH_REQUESTED, SETTINGS_NOTICE_UNTIL, CELEBRATE_UNTIL, SESSION_SCROLL
 
     s = state.snapshot()
 
@@ -123,7 +124,7 @@ def on_tap(sx: int, sy: int) -> None:
             CELEBRATE_UNTIL = time.monotonic() + 1.5
     else:
         # Dashboard touch
-        zones = touch.dashboard_zones(len(s.session_rows))
+        zones = touch.dashboard_zones(len(s.session_rows), SESSION_SCROLL)
         action = touch.hit_test(sx, sy, zones)
         if action == "settings":
             SETTINGS_MODE = True
@@ -136,6 +137,12 @@ def on_tap(sx: int, sy: int) -> None:
             log.info("[dnd] mode=%s", DND_MODE)
             if DND_MODE and s.prompt_id:
                 _ack(s.prompt_id, "once")
+        elif action == "session_scroll_up":
+            SESSION_SCROLL = max(0, SESSION_SCROLL - 1)
+            log.info("[session] scroll up -> %d", SESSION_SCROLL)
+        elif action == "session_scroll_down":
+            SESSION_SCROLL = min(max(0, len(s.session_rows) - layout.SESSION_VISIBLE), SESSION_SCROLL + 1)
+            log.info("[session] scroll down -> %d", SESSION_SCROLL)
         elif action and action.startswith("session:"):
             idx = int(action.split(":", 1)[1])
             if 0 <= idx < len(s.session_rows):
@@ -150,6 +157,7 @@ def on_tap(sx: int, sy: int) -> None:
 # ─── redraw signalling ────────────────────────────────────────────────────────
 
 _redraw_event = threading.Event()
+_dnd_auto_approved: set[str] = set()
 
 
 def _request_redraw() -> None:
@@ -228,9 +236,12 @@ def render_loop() -> None:
                 elapsed = time.monotonic() - _prompt_arrived.get(s.prompt_id, now)
                 log.debug("[render] approval prompt=%s tool=%s", s.prompt_id, s.prompt_tool)
                 RENDERER.draw_approval_card(s, elapsed_s=elapsed)
-                if DND_MODE:
-                    # Auto-approve in DND after short delay
-                    threading.Timer(0.6, lambda pid=s.prompt_id: _ack(pid, "once")).start()
+                if DND_MODE and s.prompt_id not in _dnd_auto_approved:
+                    _dnd_auto_approved.add(s.prompt_id)
+                    def _dnd_ack(pid: str) -> None:
+                        _ack(pid, "once")
+                        _dnd_auto_approved.discard(pid)
+                    threading.Timer(0.6, _dnd_ack, args=(s.prompt_id,)).start()
             else:
                 render_summary = (
                     f"dashboard total={s.sessions_total} running={s.sessions_running} "
@@ -247,7 +258,7 @@ def render_loop() -> None:
                     len(s.lines),
                     DND_MODE,
                 )
-                RENDERER.draw_dashboard(s, celebrate=celebrate, dnd=DND_MODE)
+                RENDERER.draw_dashboard(s, celebrate=celebrate, dnd=DND_MODE, scroll=SESSION_SCROLL)
         except Exception:
             log.exception("[render] draw raised")
 

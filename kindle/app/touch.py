@@ -196,14 +196,18 @@ def hit_test(sx: int, sy: int, zones: dict[str, tuple[int, int, int, int]]) -> s
     return None
 
 
-def dashboard_zones(session_count: int = 0) -> dict[str, tuple[int, int, int, int]]:
+def dashboard_zones(session_count: int = 0, scroll: int = 0) -> dict[str, tuple[int, int, int, int]]:
     zones: dict[str, tuple[int, int, int, int]] = {
         "exit": layout.EXIT_ZONE,
         "settings": layout.SETTINGS_ZONE,
         "dnd": layout.DND_TOGGLE_ZONE,
     }
-    for i, z in enumerate(layout.session_row_zones(session_count)):
-        zones[f"session:{i}"] = z
+    if scroll > 0:
+        zones["session_scroll_up"] = layout.SESSION_SCROLL_UP_ZONE
+    if scroll + layout.SESSION_VISIBLE < session_count:
+        zones["session_scroll_down"] = layout.SESSION_SCROLL_DOWN_ZONE
+    for i, z in enumerate(layout.session_row_zones(session_count, scroll)):
+        zones[f"session:{scroll + i}"] = z
     return zones
 
 

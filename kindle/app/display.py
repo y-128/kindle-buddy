@@ -302,7 +302,8 @@ class Renderer:
 
     def draw_dashboard(self, s: KindleState,
                        celebrate: bool = False,
-                       dnd: bool = False) -> None:
+                       dnd: bool = False,
+                       scroll: int = 0) -> None:
         self._clear()
         P = layout.PAD
         Y = layout.SAFE_TOP
@@ -323,10 +324,17 @@ class Renderer:
         self._draw.line([(mid_x, pane_top + 8), (mid_x, pane_bottom - 4)], fill=layout.INK, width=1)
         self._text("SESSIONS", P, pane_top + 10, label_font, fill=layout.INK_DIM)
 
-        rows = s.session_rows[:4]
-        if not rows:
-            rows = []
+        all_rows = s.session_rows
+        rows = all_rows[scroll:scroll + layout.SESSION_VISIBLE]
         row_y = pane_top + 34
+
+        # Scroll indicators
+        scroll_x = 252
+        if scroll > 0:
+            self._text("▲", scroll_x, pane_top + 14, _sans(layout.TS_SM), anchor="mm")
+        if scroll + layout.SESSION_VISIBLE < len(all_rows):
+            self._text("▼", scroll_x, pane_bottom - 10, _sans(layout.TS_SM), anchor="mm")
+
         for i, row in enumerate(rows):
             y = row_y + i * 24
             focused = row.focused or row.waiting
@@ -340,7 +348,7 @@ class Renderer:
             if suffix:
                 self._text(self._fit_text(suffix, label_font, 72), mid_x - 12, y + 3,
                            label_font, fill=layout.PAPER if focused else layout.INK, anchor="ra")
-        if not rows:
+        if not all_rows:
             self._text("* (unknown)", P, row_y, body_font)
 
         model_x = mid_x + 16

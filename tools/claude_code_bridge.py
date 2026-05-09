@@ -371,9 +371,11 @@ def on_rx_byte(b: int):
                 # project / branch / latest-reply. Does NOT affect the
                 # pending-approval FIFO — approvals keep popping in order.
                 global FOCUSED_SID
-                FOCUSED_SID = obj.get("sid") or None
-                if FOCUSED_SID and FOCUSED_SID not in SESSIONS_TOTAL:
-                    SESSIONS_TOTAL.append(FOCUSED_SID)
+                new_sid = obj.get("sid") or None
+                with STATE_LOCK:
+                    FOCUSED_SID = new_sid
+                    if new_sid and new_sid not in SESSIONS_TOTAL:
+                        SESSIONS_TOTAL.append(new_sid)
                 BUMP_EVENT.set()
     else:
         if len(_rx_buf) < 4096:   # sanity cap; devices don't send this much anyway

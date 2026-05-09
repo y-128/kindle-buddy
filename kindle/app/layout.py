@@ -61,12 +61,19 @@ _SESSION_PANE_TOP = SAFE_TOP + 70 + 34   # first row top = 140
 _SESSION_ROW_STEP = 24
 _SESSION_ROW_H    = 22
 _SESSION_ROW_W    = 278                  # mid_x(290) - PAD(12)
+SESSION_VISIBLE   = 4                    # rows visible at once
 
-def session_row_zones(n: int) -> list[tuple[int, int, int, int]]:
-    """Return touch zones for the first n session rows (max 4)."""
+# Scroll arrow zones (right edge of session column, outside row y-ranges)
+_SCROLL_X = 248
+SESSION_SCROLL_UP_ZONE   = (_SCROLL_X, SAFE_TOP + 70 + 4,  30, 22)   # above first row
+SESSION_SCROLL_DOWN_ZONE = (_SCROLL_X, _SESSION_PANE_TOP + SESSION_VISIBLE * _SESSION_ROW_STEP + 2, 30, 20)
+
+def session_row_zones(n: int, scroll: int = 0) -> list[tuple[int, int, int, int]]:
+    """Return touch zones for SESSION_VISIBLE rows starting at scroll offset."""
+    visible = min(n - scroll, SESSION_VISIBLE)
     return [
         (PAD, _SESSION_PANE_TOP + i * _SESSION_ROW_STEP, _SESSION_ROW_W, _SESSION_ROW_H)
-        for i in range(min(n, 4))
+        for i in range(max(0, visible))
     ]
 
 def question_option_zones(n: int) -> list[tuple[int, int, int, int]]:
